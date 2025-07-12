@@ -24,14 +24,13 @@ public class BitbDetectionController {
     public ResponseEntity<PredictionResponse> detectBitbAttack(@RequestBody Map<String, List<Double>> requestBody) {
         List<Double> features = requestBody.get("features");
 
-        if (features == null || features.size() != 3) {
-            return ResponseEntity
-                    .badRequest()
-                    .body(new PredictionResponse(-1, 0.0f, "Invalid input. Expected 3 features."));
+        if (features == null || features.size() != 8) {
+            return ResponseEntity.badRequest()
+                    .body(new PredictionResponse(-1, 0f, "Invalid input. Expected 8 features."));
         }
 
-        PhishingResult result = detector.predict(features);
-        String label = result.prediction == 1 ? "BitB Attack Detected" : "No BitB Attack";
+        OnnxPhishingDetector.PhishingResult result = detector.predict(features);
+        String label = result.prediction == 1 ? "BitB Attack Detected" : "Page looks clean";
 
         return ResponseEntity.ok(new PredictionResponse(result.prediction, result.score, label));
     }
