@@ -50,10 +50,10 @@ public class OnnxPhishingDetector {
 
                 if (output instanceof float[][]) {
                     score = ((float[][]) output)[0][0];
-                    prediction = Math.round(score);
+                    prediction = score > 0.80f ? 1 : 0;
                 } else if (output instanceof float[]) {
                     score = ((float[]) output)[0];
-                    prediction = Math.round(score);
+                    prediction = score > 0.80f ? 1 : 0;
                 } else if (output instanceof long[][]) {
                     long val = ((long[][]) output)[0][0];
                     prediction = (int) val;

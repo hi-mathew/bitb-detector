@@ -24,9 +24,9 @@ public class BitbDetectionController {
     public ResponseEntity<PredictionResponse> detectBitbAttack(@RequestBody Map<String, List<Double>> requestBody) {
         List<Double> features = requestBody.get("features");
 
-        if (features == null || features.size() != 8) {
+        if (features == null || features.size() != 11) {
             return ResponseEntity.badRequest()
-                    .body(new PredictionResponse(-1, 0f, "Invalid input. Expected 8 features."));
+                    .body(new PredictionResponse(-1, 0f, "Invalid input. Expected 11 features."));
         }
 
         OnnxPhishingDetector.PhishingResult result = detector.predict(features);
