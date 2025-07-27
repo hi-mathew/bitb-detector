@@ -7,9 +7,8 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class OnnxPhishingDetector {
@@ -39,37 +38,35 @@ public class OnnxPhishingDetector {
             }
 
             String inputName = session.getInputNames().iterator().next();
-            Map<String, OnnxTensor> inputs = new HashMap<>();
-            inputs.put(inputName, OnnxTensor.createTensor(env, inputTensor));
+            Map<String, OnnxTensor> inputs = Map.of(inputName, OnnxTensor.createTensor(env, inputTensor));
 
             try (OrtSession.Result result = session.run(inputs)) {
-                Object output = result.get(0).getValue();
+                float[] logits;
 
-                float score = 0.0f;
-                int prediction = 0;
-
-                if (output instanceof float[][]) {
-                    score = ((float[][]) output)[0][0];
-                    prediction = score > 0.80f ? 1 : 0;
-                } else if (output instanceof float[]) {
-                    score = ((float[]) output)[0];
-                    prediction = score > 0.80f ? 1 : 0;
-                } else if (output instanceof long[][]) {
-                    long val = ((long[][]) output)[0][0];
-                    prediction = (int) val;
-                    score = (float) val;
-                } else if (output instanceof long[]) {
-                    long val = ((long[]) output)[0];
-                    prediction = (int) val;
-                    score = (float) val;
+                Object raw = result.get(0).getValue();
+                if (raw instanceof float[][]) {
+                    logits = ((float[][]) raw)[0];
                 } else {
-                    throw new RuntimeException("Unsupported output type: " + output.getClass());
+                    throw new RuntimeException("Unsupported output type: " + raw.getClass());
                 }
 
-                logger.info("📤 ONNX raw output: {}", output);
-                logger.info("✅ Predicted: {}, Score: {}", prediction, score);
+                logger.info("📤 ONNX logits: {}", Arrays.toString(logits));
 
-                return new PhishingResult(prediction, score);
+                float[] probs = softmax(logits);
+                int predictedClass = maxIndex(probs);
+                float score = probs[predictedClass];
+
+                logger.info("📊 Softmax probs: {}", Arrays.toString(probs));
+                logger.info("✅ Predicted class: {}, Score: {}", predictedClass, score);
+
+                String message = switch (predictedClass) {
+                    case 0 -> "✅ Page looks clean";
+                    case 1 -> "⚠️ Suspicious Behavior Detected";
+                    case 2 -> "🚨 BitB Attack Detected";
+                    default -> "Unknown";
+                };
+
+                return new PhishingResult(predictedClass, score, message);
             }
 
         } catch (Exception e) {
@@ -78,13 +75,41 @@ public class OnnxPhishingDetector {
         }
     }
 
+    private float[] softmax(float[] logits) {
+        double max = Double.NEGATIVE_INFINITY;
+        for (float val : logits) max = Math.max(max, val);
+
+        double[] exps = new double[logits.length];
+        double sum = 0.0;
+        for (int i = 0; i < logits.length; i++) {
+            exps[i] = Math.exp(logits[i] - max);
+            sum += exps[i];
+        }
+
+        float[] probs = new float[logits.length];
+        for (int i = 0; i < logits.length; i++) {
+            probs[i] = (float)(exps[i] / sum);
+        }
+        return probs;
+    }
+
+    private int maxIndex(float[] arr) {
+        int maxIdx = 0;
+        for (int i = 1; i < arr.length; i++) {
+            if (arr[i] > arr[maxIdx]) maxIdx = i;
+        }
+        return maxIdx;
+    }
+
     public static class PhishingResult {
         public final int prediction;
         public final float score;
+        public final String message;
 
-        public PhishingResult(int prediction, float score) {
+        public PhishingResult(int prediction, float score, String message) {
             this.prediction = prediction;
             this.score = score;
+            this.message = message;
         }
     }
 }

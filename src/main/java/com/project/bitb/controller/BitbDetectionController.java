@@ -30,8 +30,7 @@ public class BitbDetectionController {
         }
 
         OnnxPhishingDetector.PhishingResult result = detector.predict(features);
-        String label = result.prediction == 1 ? "BitB Attack Detected" : "Page looks clean";
 
-        return ResponseEntity.ok(new PredictionResponse(result.prediction, result.score, label));
+        return ResponseEntity.ok(new PredictionResponse(result.prediction, result.score, result.message));
     }
 }
