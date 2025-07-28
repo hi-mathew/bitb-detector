@@ -1,0 +1,100 @@
+==============================
+Script to install onnx package
+==============================
+!pip install onnx
+
+==========================
+Python Script for Training
+==========================
+
+import pandas as pd
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+import torch.nn.functional as F
+
+# ========= 1. Load Dataset =========
+df = pd.read_csv("bitb_dataset.csv")
+
+# Ensure correct label values: 0=Clean, 1=Suspicious, 2=BitB
+assert set(df["label"].unique()).issubset({0, 1, 2}), "Labels must be 0 (Clean), 1 (Suspicious), or 2 (BitB)"
+
+X = df.drop("label", axis=1).values.astype(np.float32)
+y = df["label"].values.astype(np.int64)  # int64 for CrossEntropyLoss
+
+# ========= 2. Split =========
+X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
+
+X_train = torch.tensor(X_train)
+y_train = torch.tensor(y_train)
+X_test = torch.tensor(X_test)
+y_test = torch.tensor(y_test)
+
+# ========= 3. Define Model =========
+class BitBClassifier(nn.Module):
+    def __init__(self):
+        super(BitBClassifier, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(11, 32),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Linear(16, 3)  # 3 output classes
+        )
+
+    def forward(self, x):
+        return self.network(x)  # raw logits
+
+model = BitBClassifier()
+
+# ========= 4. Train =========
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+for epoch in range(100):
+    model.train()
+    optimizer.zero_grad()
+    outputs = model(X_train)  # raw logits
+    loss = criterion(outputs, y_train)
+    loss.backward()
+    optimizer.step()
+
+    if epoch % 10 == 0:
+        print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
+
+# ========= 5. Evaluation =========
+model.eval()
+with torch.no_grad():
+    logits = model(X_test)
+    probs = F.softmax(logits, dim=1)
+    predicted_classes = torch.argmax(probs, dim=1)
+
+    acc = (predicted_classes == y_test).float().mean()
+    print(f"\n✅ Test Accuracy: {acc.item() * 100:.2f}%")
+
+    print("\n📊 Classification Report:")
+    print(classification_report(
+        y_test.numpy(),
+        predicted_classes.numpy(),
+        labels=[0, 1, 2],
+        target_names=["Clean", "Suspicious", "BitB Attack"],
+        zero_division=0
+    ))
+
+# ========= 6. Export to ONNX =========
+dummy_input = torch.randn(1, 11)
+torch.onnx.export(
+    model,
+    dummy_input,
+    "bitb_phishing_detector.onnx",
+    input_names=["input"],
+    output_names=["logits"],
+    dynamic_axes={"input": {0: "batch_size"}},
+    opset_version=11
+)
+
+print("\n✅ ONNX model exported to: bitb_phishing_detector.onnx")
