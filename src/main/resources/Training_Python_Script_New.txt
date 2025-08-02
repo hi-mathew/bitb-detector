@@ -1,0 +1,35 @@
+import pandas as pd
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from onnxmltools.convert import convert_xgboost
+from onnxmltools.convert.common.data_types import FloatTensorType
+
+# 1. Load dataset
+df = pd.read_csv("bitb_dataset.csv")
+
+# 2. Separate features and label
+X = df.drop(columns=["label"])
+y = df["label"]
+
+# 3. Encode label if needed
+if y.dtype == object or y.dtype.name == 'category':
+    le = LabelEncoder()
+    y = le.fit_transform(y)
+
+# 4. Convert features to NumPy (removes string column names)
+X_np = X.to_numpy()
+
+# 5. Train model with no feature names to avoid ONNX conflict
+model = xgb.XGBClassifier(n_estimators=100, max_depth=5, eval_metric="mlogloss", enable_categorical=False)
+model.fit(X_np, y)
+
+# 6. ONNX export (no named features)
+initial_type = [('input', FloatTensorType([None, X.shape[1]]))]
+onnx_model = convert_xgboost(model, initial_types=initial_type)
+
+# 7. Save ONNX model
+with open("bitb_phishing_detector.onnx", "wb") as f:
+    f.write(onnx_model.SerializeToString())
+
+print("✅ Model exported to ONNX successfully.")

@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class OnnxPhishingDetector {
@@ -41,26 +40,45 @@ public class OnnxPhishingDetector {
             Map<String, OnnxTensor> inputs = Map.of(inputName, OnnxTensor.createTensor(env, inputTensor));
 
             try (OrtSession.Result result = session.run(inputs)) {
-                float[] logits;
-
                 Object raw = result.get(0).getValue();
-                if (raw instanceof float[][]) {
-                    logits = ((float[][]) raw)[0];
+
+                int predictedClass;
+                float score;
+
+                if (raw instanceof float[][] logitsArray) {
+                    float[] logits = logitsArray[0];
+                    logger.info("📤 ONNX logits: {}", Arrays.toString(logits));
+
+                    float[] probs = softmax(logits);
+                    logger.info("📊 Softmax probs: {}", Arrays.toString(probs));
+
+                    float bitbScore = probs[2];
+                    float suspiciousScore = probs[1];
+                    float safeScore = probs[0];
+
+                    if (bitbScore >= 0.38f && bitbScore == max(probs)) {
+                        predictedClass = 2;
+                    } else if (suspiciousScore >= 0.38f && suspiciousScore == max(probs)) {
+                        predictedClass = 1;
+                    } else {
+                        predictedClass = 0;
+                    }
+
+                    score = probs[predictedClass];
+
+                } else if (raw instanceof long[] rawLong) {
+                    logger.info("📤 ONNX output (long[]): {}", Arrays.toString(rawLong));
+                    predictedClass = (int) rawLong[0]; // Cast from long to int
+                    score = 1.0f; // No probability available
+
                 } else {
-                    throw new RuntimeException("Unsupported output type: " + raw.getClass());
+                    throw new RuntimeException("❌ Unsupported output type: " + raw.getClass());
                 }
 
-                logger.info("📤 ONNX logits: {}", Arrays.toString(logits));
-
-                float[] probs = softmax(logits);
-                int predictedClass = maxIndex(probs);
-                float score = probs[predictedClass];
-
-                logger.info("📊 Softmax probs: {}", Arrays.toString(probs));
-                logger.info("✅ Predicted class: {}, Score: {}", predictedClass, score);
+                logger.info("✅ Final prediction: {}, Score: {}", predictedClass, score);
 
                 String message = switch (predictedClass) {
-                    case 0 -> "✅ Page looks clean";
+                    case 0 -> "✅ Page Verified as Safe";
                     case 1 -> "⚠️ Suspicious Behavior Detected";
                     case 2 -> "🚨 BitB Attack Detected";
                     default -> "Unknown";
@@ -88,17 +106,19 @@ public class OnnxPhishingDetector {
 
         float[] probs = new float[logits.length];
         for (int i = 0; i < logits.length; i++) {
-            probs[i] = (float)(exps[i] / sum);
+            probs[i] = (float) (exps[i] / sum);
         }
         return probs;
     }
 
-    private int maxIndex(float[] arr) {
-        int maxIdx = 0;
-        for (int i = 1; i < arr.length; i++) {
-            if (arr[i] > arr[maxIdx]) maxIdx = i;
+    private float max(float[] arr) {
+        float maxVal = arr[0];
+        for (float v : arr) {
+            if (v > maxVal) {
+                maxVal = v;
+            }
         }
-        return maxIdx;
+        return maxVal;
     }
 
     public static class PhishingResult {
